@@ -17,7 +17,7 @@ sqr x = x ^ 2
 input = [1, 2, 3, 4] :: [Int]
 
 prop :: Int -> [Int] -> Bool
-prop n xs | sum xs < n  = True
+prop n xs | sum xs > n  = True
           | otherwise   = False
 
 afterFunc :: [Int] -> IO()
@@ -30,10 +30,13 @@ slaveJob = $(mkSlaveJob) sqr
 remotable ['slaveJob]
 clos = $(mkClosure 'slaveJob)
 rtable = __remoteTable initRemoteTable
-recProc = $(mkRecProc "unseq")
 
 main = do
   args <- getArgs
   case args of
-    ["master", host, port] -> $(simpleMS "master") host port clos input recProc rtable afterFunc (prop 100)
-    ["slave",  host, port] -> $(simpleMS "slave" ) host port rtable
+    ["master", host, port] ->
+      {-$(simpleMS "master" "%H%P%R%r") host port (prop 100) rtable input clos afterFunc -}
+      $(simpleMS "master" "%H%P%R%r") host port (prop 200) "unordered" rtable input clos afterFunc 
+      {-$(simpleMS "master" "%H%P%r") host port "unordered" rtable input clos afterFunc -}
+    ["slave",  host, port] -> 
+      $(simpleMS "slave" "%H%P") host port rtable 
