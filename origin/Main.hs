@@ -30,7 +30,7 @@ recProc len = loop len []
           x <- expect
           loop (n-1) (x:xs)
 
-masterJob backend slaves = do
+masterJob input slaves = do
           us <- getSelfPid
           slaveProcesses <- forM slaves $ 
             \nid -> spawn nid (clos us)
@@ -44,7 +44,7 @@ main = do
   case args of
     ["master", host, port] -> do
             backend <- initializeBackend host port rtable
-            startMaster backend (masterJob backend)
+            startMaster backend (masterJob input)
     ["slave",  host, port] -> do
             backend <- initializeBackend host port rtable
             startSlave backend
