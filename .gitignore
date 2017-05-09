@@ -1,0 +1,5 @@
+*.dyn_o
+*.o
+*.dyn_hi
+*.hi
+Main
