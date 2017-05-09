@@ -54,7 +54,7 @@ simpleMS ms s = gen ms (parse s) [|([], \_ -> True)|]
                             in runSlave host port rtable |]
       gen ms (H : xs) x = [| \host -> $(gen ms xs [| (("H_" ++ host):(fst $x), snd $x) |]) |]
       gen ms (P : xs) x = [| \port -> $(gen ms xs [| (("P_" ++ port):(fst $x), snd $x) |]) |]
-      gen ms (L : xs) x = [| \prop -> $(gen ms xs [|                 (fst $x), prop  ) |]) |]
+      gen ms (L : xs) x = [| \prop -> $(gen ms xs [|                ((fst $x), prop  ) |]) |]
       gen ms (R : xs) x = [| \rcvO -> $(gen ms xs [| (("R_" ++ rcvO):(fst $x), snd $x) |]) |]
 
 findOptStr :: [String] -> String -> String

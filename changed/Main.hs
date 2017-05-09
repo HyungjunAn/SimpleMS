@@ -1,9 +1,6 @@
 {-# LANGUAGE TemplateHaskell, KindSignatures #-}
 module Main where
 import System.Environment (getArgs)
-import Control.Distributed.Process
-import Control.Distributed.Process.Closure
-import Control.Distributed.Process.Node (initRemoteTable, runProcess)
 
 import Lib
 
