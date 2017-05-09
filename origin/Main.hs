@@ -7,8 +7,8 @@ import Control.Distributed.Process.Node (initRemoteTable, runProcess)
 import Control.Distributed.Process.Backend.SimpleLocalnet
 import Control.Monad (forever, forM, forM_)
 
-plus :: Int -> Int
-plus x = x + 1
+incr :: Int -> Int
+incr x = x + 1
 
 input = [1, 2, 3, 4] :: [Int]
 
@@ -19,7 +19,7 @@ slaveJob :: ProcessId -> Process()
 slaveJob = \them -> do
                       forever $ do
                             n <- expect
-                            send them (plus n)
+                            send them (incr n)
 remotable ['slaveJob]
 clos = $(mkClosure 'slaveJob)
 rtable = __remoteTable initRemoteTable
