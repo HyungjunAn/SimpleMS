@@ -1,5 +1,10 @@
-*.dyn_o
-*.o
-*.dyn_hi
-*.hi
-Main
+./changed/*.dyn_o
+./changed/*.dyn_hi
+./changed/*.o
+./changed/*.hi
+./changed/Main
+./origin/*.dyn_o
+./origin/*.dyn_hi
+./origin/*.o
+./origin/*.hi
+./origin/Main
