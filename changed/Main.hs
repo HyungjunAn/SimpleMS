@@ -23,9 +23,8 @@ afterFunc :: [Int] -> IO()
 {-afterFunc xs = putStrLn $ show $ sum xs-}
 afterFunc xs = putStrLn $ show xs
 --------------------------------------------------------------------------
---ffff 'sqr
-ffff 'incr
-exexex
+--mkSlaveJob 'sqr
+mkSlaveJob 'incr
 
 main = do
   args <- getArgs
@@ -33,7 +32,7 @@ main = do
     ["master", host, port] ->
       {-$(simpleMS "master" "%H%P%r") host port "unordered" input afterFunc -}
       $(simpleMS "master" "%H%P%r") host port "unordered" input afterFunc 
-      {-$(simpleMS "master" "%H%P%R%r") host port (prop 200) "unordered" input afterFunc -}
+      {-$(simpleMS "master" "%H%P%L%r") host port (prop 200) "unordered" input afterFunc -}
       {-$(simpleMS "master" "%H%P%r") host port "unordered" rtable input afterFunc -}
     ["slave",  host, port] -> 
       $(simpleMS "slave" "%H%P") host port 
