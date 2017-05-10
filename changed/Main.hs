@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, KindSignatures #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Main where
 import System.Environment (getArgs)
 
@@ -28,7 +28,8 @@ main = do
   case args of
     ["master", host, port] ->
       {-$(simpleMS "master" "%H%P%R") host port "unordered" input afterFunc -}
-      $(simpleMS "master" "%H%P%R") host port "ordered" input afterFunc 
+      {-$(simpleMS "master" "%H%P%R") host port "ordered" input afterFunc -}
+      $(simpleMS "master" "%H%P") host port input afterFunc 
       {-$(simpleMS "master" "%H%P%L%R") host port (prop 200) "unordered" input afterFunc -}
       {-$(simpleMS "master" "%H%P%R") host port "unordered" rtable input afterFunc -}
     ["slave",  host, port] -> 
