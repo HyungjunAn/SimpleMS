@@ -1,14 +1,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Lib where
 
--- import System.Environment (getArgs)
 import System.Process(runInteractiveCommand, waitForProcess)
---import Filesystem.Path.CurrentOS
 import System.Exit (ExitCode)
 import System.IO (hGetContents)
 
 import Data.List.Split (splitOn)
-import Data.Maybe (fromJust)
+import Data.Maybe (isNothing, fromJust)
+import Data.List (sortBy)
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
@@ -21,69 +20,63 @@ import Language.Haskell.TH.Syntax
 import Language.Haskell.TH
 
 mkSlaveJob funcName = remotableDecl [
-  [d| slaveJob :: ProcessId -> Process();
+  [d| slaveJob :: ProcessId -> Process()
       slaveJob them = do
                         forever $ do
-                            n <- expect
-                            send them ($(varE funcName) n) |] ]
+                            (i, d) <- expect  :: (Serializable a => (Process (Int, a))) -- (index, data)
+                            send them (i, $(varE funcName) d) |] ]
 
-data Format =  H | P | R | L
+data Format =  H String | P String | R String | L
 
 simpleMS :: String -> String -> Q Exp
 simpleMS ms s = gen ms (parse s) [|([], \_ -> True)|]
     where
       parse :: String -> [Format]
       parse [] = []
-      parse ('%':'H':xs) = H : parse xs
-      parse ('%':'P':xs) = P : parse xs
-      parse ('%':'r':xs) = R : parse xs  --receive order 
-      parse ('%':'L':xs) = L : parse xs  --recursion 
+      parse ('%':'H':xs) = H "" : parse xs
+      parse ('%':'P':xs) = P "" : parse xs
+      parse ('%':'R':xs) = R "" : parse xs  --receive order 
+      parse ('%':'L':xs) = L    : parse xs  --loop 
 
       gen :: String -> [Format] -> Q Exp -> Q Exp
-      gen "master" [] x = [|  let ss = fst $x
-                                  [h, p, r] = map (findOptStr ss) ["H_", "P_", "R_"]
-                                  host | h /= "" = h
-                                       | otherwise = "127.0.0.1"
-                                  port' | p /= "" = p
-                                        | otherwise = "unknown"
-                                  recOrd | r /= ""   = r
-                                         | otherwise = "unordered"
-                                  prop = snd $x
-                                  clos = $(mkClosure (mkName "slaveJob"))
-                                  rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
-                              in 
-                                \input -> \afterFunc -> do
-                                  portt <- getUnusedPort port'
-                                  let port = fromJust portt
-                                  runMaster host port prop (mkRecProc recOrd) rtable clos input afterFunc |] 
-      gen "slave" [] x = [| let ss = fst $x
-                                [h, p] = map (findOptStr ss) ["H_", "P_"]
-                                host | h /= "" = h
-                                     | otherwise = "127.0.0.1"
-                                port' | p /= "" = p
-                                      | otherwise = "unknown"
-                                rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
-                            in 
-                              do
-                                portt <- getUnusedPort port'
-                                let port = fromJust portt
-                                runSlave host port rtable |]
-      gen ms (H : xs) x = [| \host -> $(gen ms xs [| (("H_" ++ host):(fst $x), snd $x) |]) |]
-      gen ms (P : xs) x = [| \port -> $(gen ms xs [| (("P_" ++ port):(fst $x), snd $x) |]) |]
-      gen ms (L : xs) x = [| \prop -> $(gen ms xs [|                ((fst $x), prop  ) |]) |]
-      gen ms (R : xs) x = [| \rcvO -> $(gen ms xs [| (("R_" ++ rcvO):(fst $x), snd $x) |]) |]
-      
-findOptStr :: [String] -> String -> String
-findOptStr [] _ = ""
-findOptStr (s:ss) str | take (length str) s == str = drop (length str) s
-                      | otherwise                  = findOptStr ss str
+      gen "master" [] x = [| \input -> \afterFunc -> do
+                                  let (h, p, r) = findOptVal (fst $x)
+                                  let prop = snd $x
+                                  let clos = $(mkClosure (mkName "slaveJob"))
+                                  let rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
+                                  (host, port) <- getHostIpAndUnusedPort h p
+                                  runMaster host port prop (mkRecProc r) rtable clos input afterFunc |] 
 
-getHostIpAndUnusedPort :: String -> String -> IO (String, String)
-getHostIpAndUnusedPort host port = do
-                            let host' | host == "" = "127.0.0.1"
-                                      | otherwise  = host
-                            port' <- getUnusedPort port
-                            return (host', fromJust port')
+      gen "slave" [] x = [| do
+                              let (h, p, _) = findOptVal (fst $x)
+                              let rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
+                              (host, port) <- getHostIpAndUnusedPort h p
+                              runSlave host port rtable |]
+
+      gen ms (H _ : xs) x = [| \host -> $(gen ms xs [| (H host:(fst $x), snd $x) |]) |]
+      gen ms (P _ : xs) x = [| \port -> $(gen ms xs [| (P port:(fst $x), snd $x) |]) |]
+      gen ms (R _ : xs) x = [| \rcvO -> $(gen ms xs [| (R rcvO:(fst $x), snd $x) |]) |]
+      gen ms (L   : xs) x = [| \prop -> $(gen ms xs [|        ((fst $x), prop  ) |]) |]
+      
+findOptVal :: [Format] -> (Maybe String, Maybe String, Maybe String)
+findOptVal fs = loop fs (Nothing, Nothing, Nothing)
+  where 
+    loop [] res = res
+    loop (H s:ss) (mh, mp, mr) = loop ss (Just s, mp,     mr)
+    loop (P s:ss) (mh, mp, mr) = loop ss (mh,     Just s, mr)
+    loop (R s:ss) (mh, mp, mr) = loop ss (mh,     mp,     Just s)
+    loop (_  :ss) (mh, mp, mr) = loop ss (mh,     mp,     mr)
+
+getHostIpAndUnusedPort :: Maybe String -> Maybe String -> IO (String, String)
+getHostIpAndUnusedPort mh mp = do
+                            let host | isNothing mh = "127.0.0.1"
+                                     | otherwise    = fromJust mh
+                            let port | isNothing mp = "80"
+                                     | otherwise    = fromJust mp
+                            mp' <- getUnusedPort port
+                            case isNothing mp of
+                              True  -> return (host, fromJust mp')
+                              False -> return (host, port)
 
 getUnusedPort :: String -> IO (Maybe String)
 getUnusedPort s = do
@@ -124,19 +117,30 @@ runMaster host port prop recProc rtable clos input afterFunc = do
                       then return res
                       else loop prop res slaveProcesses recProc
 
+masterJob :: Serializable a => [a] -> [ProcessId] -> (Int -> Process [a]) -> Process [a]
 masterJob input slaveProcesses recProc = do
-          spawnLocal $ forM_ (zip input (cycle slaveProcesses)) $
-            \(m, them) -> send them m
-          res <- recProc (length input)
-          return res
+          spawnLocal $ forM_ (zip3 ([1..]::[Int]) input (cycle slaveProcesses)) $
+            \(i, d, them) -> send them (i, d)
+          recProc (length input)
 
 runSlave host port rtable = do 
                       backend <- initializeBackend host port rtable
                       startSlave backend
 
-mkRecProc "unordered" len = loop len []
-                        where
-                          loop 0 xs = return xs
-                          loop n xs = do
-                              x <- expect
-                              loop (n-1) (x:xs)
+mkRecProc :: Serializable a => Maybe String -> Int -> Process [a]
+mkRecProc mo len = do 
+                      indexedRes <- loop len []
+                      let indexedRes' = case mo of 
+                                Nothing          ->
+                                                indexedRes
+                                Just "unordered" -> 
+                                                indexedRes
+                                Just "ordered"   ->
+                                                sortBy (\(i1, _) -> \(i2, _) -> compare i1 i2) indexedRes 
+                      return $ map (\(_, d) -> d) indexedRes'
+                      where
+                        loop :: Serializable a => Int -> [(Int, a)] -> Process [(Int, a)]
+                        loop 0 xs = return xs
+                        loop n xs = do
+                            (i, d) <- expect
+                            loop (n-1) ((i, d):xs)

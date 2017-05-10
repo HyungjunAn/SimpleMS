@@ -27,9 +27,9 @@ main = do
   args <- getArgs
   case args of
     ["master", host, port] ->
-      {-$(simpleMS "master" "%H%P%r") host port "unordered" input afterFunc -}
-      $(simpleMS "master" "%H%P%r") host port "unordered" input afterFunc 
-      {-$(simpleMS "master" "%H%P%L%r") host port (prop 200) "unordered" input afterFunc -}
-      {-$(simpleMS "master" "%H%P%r") host port "unordered" rtable input afterFunc -}
+      {-$(simpleMS "master" "%H%P%R") host port "unordered" input afterFunc -}
+      $(simpleMS "master" "%H%P%R") host port "ordered" input afterFunc 
+      {-$(simpleMS "master" "%H%P%L%R") host port (prop 200) "unordered" input afterFunc -}
+      {-$(simpleMS "master" "%H%P%R") host port "unordered" rtable input afterFunc -}
     ["slave",  host, port] -> 
       $(simpleMS "slave" "%H%P") host port 
