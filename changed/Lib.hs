@@ -1,7 +1,15 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Lib where
 
-import System.Environment (getArgs)
+-- import System.Environment (getArgs)
+import System.Process(runInteractiveCommand, waitForProcess)
+--import Filesystem.Path.CurrentOS
+import System.Exit (ExitCode)
+import System.IO (hGetContents)
+
+import Data.List.Split (splitOn)
+import Data.Maybe (fromJust)
+
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node (initRemoteTable, runProcess)
@@ -36,31 +44,69 @@ simpleMS ms s = gen ms (parse s) [|([], \_ -> True)|]
                                   [h, p, r] = map (findOptStr ss) ["H_", "P_", "R_"]
                                   host | h /= "" = h
                                        | otherwise = "127.0.0.1"
-                                  port | p /= "" = p
-                                       | otherwise = "100"
+                                  port' | p /= "" = p
+                                        | otherwise = "unknown"
                                   recOrd | r /= ""   = r
                                          | otherwise = "unordered"
                                   prop = snd $x
                                   clos = $(mkClosure (mkName "slaveJob"))
                                   rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
-                              in runMaster host port prop (mkRecProc recOrd) rtable clos |] 
+                              in 
+                                \input -> \afterFunc -> do
+                                  portt <- getUnusedPort port'
+                                  let port = fromJust portt
+                                  runMaster host port prop (mkRecProc recOrd) rtable clos input afterFunc |] 
       gen "slave" [] x = [| let ss = fst $x
                                 [h, p] = map (findOptStr ss) ["H_", "P_"]
                                 host | h /= "" = h
                                      | otherwise = "127.0.0.1"
-                                port | p /= "" = p
-                                     | otherwise = "101"
+                                port' | p /= "" = p
+                                      | otherwise = "unknown"
                                 rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
-                            in runSlave host port rtable |]
+                            in 
+                              do
+                                portt <- getUnusedPort port'
+                                let port = fromJust portt
+                                runSlave host port rtable |]
       gen ms (H : xs) x = [| \host -> $(gen ms xs [| (("H_" ++ host):(fst $x), snd $x) |]) |]
       gen ms (P : xs) x = [| \port -> $(gen ms xs [| (("P_" ++ port):(fst $x), snd $x) |]) |]
       gen ms (L : xs) x = [| \prop -> $(gen ms xs [|                ((fst $x), prop  ) |]) |]
       gen ms (R : xs) x = [| \rcvO -> $(gen ms xs [| (("R_" ++ rcvO):(fst $x), snd $x) |]) |]
-
+      
 findOptStr :: [String] -> String -> String
 findOptStr [] _ = ""
 findOptStr (s:ss) str | take (length str) s == str = drop (length str) s
                       | otherwise                  = findOptStr ss str
+
+getHostIpAndUnusedPort :: String -> String -> IO (String, String)
+getHostIpAndUnusedPort host port = do
+                            let host' | host == "" = "127.0.0.1"
+                                      | otherwise  = host
+                            port' <- getUnusedPort port
+                            return (host', fromJust port')
+
+getUnusedPort :: String -> IO (Maybe String)
+getUnusedPort s = do
+    used <- getProcessOutput $
+                    "lsof -i -nP | grep LISTEN | awk '{print $(NF-1)}' | sort -u | awk -F ':' '{print $NF}'"
+    let usedPorts = filter (\s -> isInteger s) $ splitOn "\n" used
+    return $ searchPort (read s) usedPorts
+    where
+        searchPort :: Int -> [String] -> Maybe String
+        searchPort 1024 _ = Nothing
+        searchPort candidate usedPorts = 
+            if elem (show candidate) usedPorts
+              then searchPort (candidate + 1) usedPorts
+              else Just $ show candidate
+        isInteger :: String -> Bool
+        isInteger s = case reads s :: [(Integer, String)] of
+                          [(_, "")] -> True
+                          _         -> False
+        getProcessOutput :: String -> IO String
+        getProcessOutput command = do
+              (_pin, pOut, pErr, handle) <- runInteractiveCommand command
+              output <- hGetContents pOut
+              return output
 
 runMaster host port prop recProc rtable clos input afterFunc = do 
           backend <- initializeBackend host port rtable
