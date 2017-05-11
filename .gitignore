@@ -4,9 +4,11 @@
 ./changed/*.hi
 ./changed/Main
 ./changed/*.swp
+./changed/*.txt
 ./origin/*.dyn_o
 ./origin/*.dyn_hi
 ./origin/*.o
 ./origin/*.hi
 ./origin/Main
 ./origin/*.swp
+./origin/*.txt
