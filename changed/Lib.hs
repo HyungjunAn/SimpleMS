@@ -23,8 +23,21 @@ mkSlaveJob funcName = remotableDecl [
   [d| slaveJob :: ProcessId -> Process()
       slaveJob them = do
                         forever $ do
+                            d <- expect  
+                            send them ($(varE funcName) d)
+
+      recOrd :: Maybe String
+      recOrd = Just "unordered" |] ]
+
+mkOrderedSlaveJob funcName = remotableDecl [
+  [d| slaveJob :: ProcessId -> Process()
+      slaveJob them = do
+                        forever $ do
                             (i, d) <- expect  :: (Serializable a => (Process (Int, a))) -- (index, data)
-                            send them (i, $(varE funcName) d) |] ]
+                            send them (i, $(varE funcName) d)
+
+      recOrd :: Maybe String
+      recOrd = Just "ordered" |] ]
 
 data Format =  H String | P String | R String | L
 
@@ -40,12 +53,12 @@ simpleMS ms s = gen ms (parse s) [|([], \_ -> True)|]
 
       gen :: String -> [Format] -> Q Exp -> Q Exp
       gen "master" [] x = [| \input -> \afterFunc -> do
-                                  let (h, p, r) = findOptVal (fst $x)
+                                  let (h, p, _) = findOptVal (fst $x)
                                   let prop = snd $x
                                   let clos = $(mkClosure (mkName "slaveJob"))
                                   let rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
                                   (host, port) <- getHostIpAndUnusedPort h p
-                                  runMaster host port prop (mkRecProc r) rtable clos input afterFunc |] 
+                                  runMaster host port prop $(varE (mkName "recOrd")) rtable clos input afterFunc |] 
 
       gen "slave" [] x = [| do
                               let (h, p, _) = findOptVal (fst $x)
@@ -101,46 +114,54 @@ getUnusedPort s = do
               output <- hGetContents pOut
               return output
 
-runMaster host port prop recProc rtable clos input afterFunc = do 
+runMaster host port prop rec rtable clos input afterFunc = do 
           backend <- initializeBackend host port rtable
           startMaster backend $
             \slaves -> do
               us <- getSelfPid
               slaveProcesses <- forM slaves $
                 \nid -> spawn nid (clos us)
-              res <- loop prop input slaveProcesses recProc
+              res <- loop prop input slaveProcesses rec
               liftIO (afterFunc res)
               where
-                loop prop input slaveProcesses recProc  = do 
-                    res <- masterJob input slaveProcesses recProc
+                loop prop input slaveProcesses rec  = do 
+                    res <- masterJob input slaveProcesses rec
                     if prop res
                       then return res
-                      else loop prop res slaveProcesses recProc
+                      else loop prop res slaveProcesses rec
 
-masterJob :: Serializable a => [a] -> [ProcessId] -> (Int -> Process [a]) -> Process [a]
-masterJob input slaveProcesses recProc = do
+masterJob :: Serializable a => [a] -> [ProcessId] -> Maybe String -> Process [a]
+masterJob input slaveProcesses Nothing           = masterJob input slaveProcesses (Just "unordered")
+masterJob input slaveProcesses (Just "unordered") = do
+          spawnLocal $ forM_ (zip input (cycle slaveProcesses)) $
+            \(d, them) -> send them d
+          unorderedRecProc (length input)
+masterJob input slaveProcesses (Just "ordered") = do
           spawnLocal $ forM_ (zip3 ([1..]::[Int]) input (cycle slaveProcesses)) $
             \(i, d, them) -> send them (i, d)
-          recProc (length input)
+          orderedRecProc (length input)
 
 runSlave host port rtable = do 
                       backend <- initializeBackend host port rtable
                       startSlave backend
 
-mkRecProc :: Serializable a => Maybe String -> Int -> Process [a]
-mkRecProc mo len = do 
+unorderedRecProc :: Serializable a => Int -> Process [a]
+unorderedRecProc len = loop len []
+                      where
+                        loop :: Serializable a => Int -> [a] -> Process [a]
+                        loop 0 xs = return xs
+                        loop n xs = do
+                            d <- expect
+                            loop (n-1) (d:xs)
+                        
+orderedRecProc :: Serializable a => Int -> Process [a]
+orderedRecProc len = do 
                       indexedRes <- loop len []
-                      let indexedRes' = case mo of 
-                                Nothing          ->
-                                                indexedRes
-                                Just "unordered" -> 
-                                                indexedRes
-                                Just "ordered"   ->
-                                                sortBy (\(i1, _) -> \(i2, _) -> compare i1 i2) indexedRes 
+                      let indexedRes' = sortBy (\(i1, _) -> \(i2, _) -> compare i1 i2) indexedRes
                       return $ map (\(_, d) -> d) indexedRes'
                       where
                         loop :: Serializable a => Int -> [(Int, a)] -> Process [(Int, a)]
                         loop 0 xs = return xs
                         loop n xs = do
-                            (i, d) <- expect
-                            loop (n-1) ((i, d):xs)
+                            d <- expect
+                            loop (n-1) (d:xs)

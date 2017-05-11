@@ -10,10 +10,11 @@ import Control.Monad (forever, forM, forM_)
 incr :: Int -> Int
 incr x = x + 1
 
-input = [1, 2, 3, 4] :: [Int]
+input = [1..100000] :: [Int]
 
 afterFunc :: [Int] -> IO()
-afterFunc xs = putStrLn $ show $ sum xs
+{-afterFunc xs = putStrLn $ show $ sum xs-}
+afterFunc xs = putStrLn $ show $ xs
 --------------------------------------------------------------------------
 slaveJob :: ProcessId -> Process()
 slaveJob = \them -> do
