@@ -39,7 +39,7 @@ mkOrderedSlaveJob funcName = remotableDecl [
       recOrd :: Maybe String
       recOrd = Just "ordered" |] ]
 
-data Format =  H String | P String | R String | L
+data Format =  H String | P String | L
 
 simpleMS :: String -> String -> Q Exp
 simpleMS ms s = gen ms (parse s) [|([], \_ -> True)|]
@@ -48,40 +48,35 @@ simpleMS ms s = gen ms (parse s) [|([], \_ -> True)|]
       parse [] = []
       parse ('%':'H':xs) = H "" : parse xs
       parse ('%':'P':xs) = P "" : parse xs
-      parse ('%':'R':xs) = R "" : parse xs  --receive order 
       parse ('%':'L':xs) = L    : parse xs  --loop 
 
       gen :: String -> [Format] -> Q Exp -> Q Exp
-      gen "master" [] x = [| \input -> \afterFunc -> do
-                                  let (h, p, _) = findOptVal (fst $x)
-                                  let prop = snd $x
+      gen "master" [] qexp = [| \input -> \afterFunc -> do
+                                  (host, port) <- getHostIpAndUnusedPort $ findHostAndPortOpt (fst $qexp)
+                                  let prop = snd $qexp
                                   let clos = $(mkClosure (mkName "slaveJob"))
                                   let rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
-                                  (host, port) <- getHostIpAndUnusedPort h p
                                   runMaster host port prop $(varE (mkName "recOrd")) rtable clos input afterFunc |] 
 
-      gen "slave" [] x = [| do
-                              let (h, p, _) = findOptVal (fst $x)
-                              let rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
-                              (host, port) <- getHostIpAndUnusedPort h p
-                              runSlave host port rtable |]
+      gen "slave" [] qexp = [| do
+                                (host, port) <- getHostIpAndUnusedPort $ findHostAndPortOpt (fst $qexp)
+                                let rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
+                                runSlave host port rtable |]
 
-      gen ms (H _ : xs) x = [| \host -> $(gen ms xs [| (H host:(fst $x), snd $x) |]) |]
-      gen ms (P _ : xs) x = [| \port -> $(gen ms xs [| (P port:(fst $x), snd $x) |]) |]
-      gen ms (R _ : xs) x = [| \rcvO -> $(gen ms xs [| (R rcvO:(fst $x), snd $x) |]) |]
-      gen ms (L   : xs) x = [| \prop -> $(gen ms xs [|        ((fst $x), prop  ) |]) |]
+      gen ms (H _ : xs) qexp = [| \host -> $(gen ms xs [| (H host:(fst $qexp), snd $qexp) |]) |]
+      gen ms (P _ : xs) qexp = [| \port -> $(gen ms xs [| (P port:(fst $qexp), snd $qexp) |]) |]
+      gen ms (L   : xs) qexp = [| \prop -> $(gen ms xs [|        ((fst $qexp), prop  ) |]) |]
       
-findOptVal :: [Format] -> (Maybe String, Maybe String, Maybe String)
-findOptVal fs = loop fs (Nothing, Nothing, Nothing)
+findHostAndPortOpt :: [Format] -> (Maybe String, Maybe String)
+findHostAndPortOpt fs = loop fs (Nothing, Nothing)
   where 
     loop [] res = res
-    loop (H s:ss) (mh, mp, mr) = loop ss (Just s, mp,     mr)
-    loop (P s:ss) (mh, mp, mr) = loop ss (mh,     Just s, mr)
-    loop (R s:ss) (mh, mp, mr) = loop ss (mh,     mp,     Just s)
-    loop (_  :ss) (mh, mp, mr) = loop ss (mh,     mp,     mr)
+    loop (H s:ss) (mh, mp) = loop ss (Just s, mp    )
+    loop (P s:ss) (mh, mp) = loop ss (mh,     Just s)
+    loop (_  :ss) (mh, mp) = loop ss (mh,     mp    )
 
-getHostIpAndUnusedPort :: Maybe String -> Maybe String -> IO (String, String)
-getHostIpAndUnusedPort mh mp = do
+getHostIpAndUnusedPort :: (Maybe String, Maybe String) -> IO (String, String)
+getHostIpAndUnusedPort (mh, mp) = do
                             let host | isNothing mh = "127.0.0.1"
                                      | otherwise    = fromJust mh
                             let port | isNothing mp = "80"

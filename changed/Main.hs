@@ -11,7 +11,7 @@ sqr :: Int -> Int
 sqr x = x ^ 2
 
 {-input = [1, 2, 3, 4] :: [Int]-}
-input = [1..100000] :: [Int]
+input = [1..100] :: [Int]
 
 
 prop :: Int -> [Int] -> Bool
