@@ -1,20 +1,26 @@
-{-# LANGUAGE TemplateHaskell, KindSignatures #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Main where
 import System.Environment (getArgs)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
-import Control.Distributed.Process.Node (initRemoteTable, runProcess)
+import Control.Distributed.Process.Node (initRemoteTable)
 import Control.Distributed.Process.Backend.SimpleLocalnet
 import Control.Monad (forever, forM, forM_)
+
+input :: [Int]
+input = [1 .. 10000] :: [Int]
 
 incr :: Int -> Int
 incr x = x + 1
 
-input = [1..100000] :: [Int]
+fib :: Int -> Int
+fib 0 = 0
+fib 1 = 1
+fib n = fib (n - 1) + fib (n - 2) 
 
-afterFunc :: [Int] -> IO()
-{-afterFunc xs = putStrLn $ show $ sum xs-}
-afterFunc xs = putStrLn $ show $ xs
+afterFunc :: [Int] -> IO ()
+afterFunc xs = putStrLn $ show $ sum xs
+{-afterFunc xs = putStrLn $ show xs-}
 --------------------------------------------------------------------------
 slaveJob :: ProcessId -> Process()
 slaveJob = \them -> do
@@ -22,14 +28,17 @@ slaveJob = \them -> do
                             n <- expect
                             send them (incr n)
 remotable ['slaveJob]
-clos = $(mkClosure 'slaveJob)
-rtable = __remoteTable initRemoteTable
+
 recProc len = loop len []
   where
     loop 0 xs = return xs
     loop n xs = do
           x <- expect
-          loop (n-1) (x:xs)
+          loop (n-1) (xs ++ [x])
+
+clos = $(mkClosure 'slaveJob)
+
+rtable = __remoteTable initRemoteTable
 
 masterJob input slaves = do
           us <- getSelfPid
