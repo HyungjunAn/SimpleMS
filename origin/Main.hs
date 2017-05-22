@@ -38,15 +38,13 @@ masterJob input slaves = do
             \nid -> spawn nid (clos us)
           spawnLocal $ forM_ (zip input (cycle slaveProcesses)) $
             \(m, them) -> send them m
-          res <- recProc (length input)
+          res <- loop (length input) []
           liftIO (afterFunc res)
-
-recProc len = loop len []
-  where
-    loop 0 xs = return xs
-    loop n xs = do
-          x <- expect
-          loop (n-1) (xs ++ [x])
+          where
+            loop 0 xs = return xs
+            loop n xs = do
+                x <- expect
+                loop (n-1) (xs ++ [x])
 
 main = do
   args <- getArgs
