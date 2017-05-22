@@ -27,17 +27,9 @@ slaveJob = \them -> do
                       forever $ do
                             n <- expect
                             send them (incr n)
+
 remotable ['slaveJob]
-
-recProc len = loop len []
-  where
-    loop 0 xs = return xs
-    loop n xs = do
-          x <- expect
-          loop (n-1) (xs ++ [x])
-
 clos = $(mkClosure 'slaveJob)
-
 rtable = __remoteTable initRemoteTable
 
 masterJob input slaves = do
@@ -48,6 +40,13 @@ masterJob input slaves = do
             \(m, them) -> send them m
           res <- recProc (length input)
           liftIO (afterFunc res)
+
+recProc len = loop len []
+  where
+    loop 0 xs = return xs
+    loop n xs = do
+          x <- expect
+          loop (n-1) (xs ++ [x])
 
 main = do
   args <- getArgs
