@@ -26,8 +26,8 @@ mkSlaveJob "unordered" funcName = remotableDecl [
                         d <- expect  
                         send them ($(varE funcName) d)
 
-      recOrd :: String
-      recOrd = "unordered" |] ]
+      recvOrd_ :: String
+      recvOrd_ = "unordered" |] ]
 
 mkSlaveJob "ordered" funcName = remotableDecl [
   [d| slaveJob :: ProcessId -> Process()
@@ -36,32 +36,36 @@ mkSlaveJob "ordered" funcName = remotableDecl [
                   (i, d) <- expect :: Serializable a => Process (Int, a) -- (index, data)
                   send them (i, $(varE funcName) d)
 
-      recOrd :: String
-      recOrd = "ordered" |] ]
+      recvOrd_ :: String
+      recvOrd_ = "ordered" |] ]
 
-data Format =  H String | P String | L
+data Format =  H String | P String | L | L1
 
-simpleMS :: String -> String -> Q Exp
-simpleMS ms s = gen ms (parse s) [| [] |] [| \_ -> True |]
+runMS :: String -> String -> Q Exp
+runMS ms s = gen ms (parse s) [| [] |] [| \ x -> x |] [| \_ -> True |]
     where
       parse :: String -> [Format]
       parse [] = []
-      parse ('%':'H':xs) = H "" : parse xs
-      parse ('%':'P':xs) = P "" : parse xs
-      parse ('%':'L':xs) = L    : parse xs  --loop 
+      parse ('%':'H'    :xs) = H "" : parse xs
+      parse ('%':'P'    :xs) = P "" : parse xs
+      parse ('%':'L'    :xs) = L    : parse xs  --loop 
+      parse ('%':'1':'L':xs) = L1   : parse xs  --loop with meta processing
 
-      gen :: String -> [Format] -> Q Exp -> Q Exp -> Q Exp
-      gen ms (H _:xs) qopts qprop = [| \host -> $(gen ms xs [| H host: $qopts |] qprop   ) |]
-      gen ms (P _:xs) qopts qprop = [| \port -> $(gen ms xs [| P port: $qopts |] qprop   ) |]
-      gen ms (L  :xs) qopts qprop = [| \prop -> $(gen ms xs qopts              [| prop |]) |]
-      gen "master" [] qopts qprop = [| \input -> \afterFunc -> do
+      gen :: String -> [Format] -> Q Exp -> Q Exp -> Q Exp -> Q Exp
+      gen ms (H _:xs) qopts qmproc qprop = [| \host -> $(gen ms xs [| H host: $qopts |] qmproc        qprop   ) |]
+      gen ms (P _:xs) qopts qmproc qprop = [| \port -> $(gen ms xs [| P port: $qopts |] qmproc        qprop   ) |]
+      gen ms (L  :xs) qopts qmproc qprop = [| \prop -> $(gen ms xs qopts                qmproc      [| prop |]) |]
+      gen ms (L1 :xs) qopts qmproc qprop = [| \mproc -> \prop ->
+                                                       $(gen ms xs qopts              [| mproc |]   [| prop |]) |]
+      gen "master" [] qopts qmproc qprop = [| \input -> \afterFunc -> do
                                   (host, port) <- getHostIpAndUnusedPort $ findHostAndPortOpt $qopts
                                   let prop = $qprop
-                                  let rec = $(varE (mkName "recOrd"))
+                                  let mproc = $qmproc
+                                  let recvOrd = $(varE (mkName "recvOrd_"))
                                   let rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
                                   let clos = $(mkClosure (mkName "slaveJob"))
-                                  runMaster host port prop rec rtable clos input afterFunc |] 
-      gen "slave" [] qopts _ =
+                                  runMaster host port mproc prop recvOrd rtable clos input afterFunc |] 
+      gen "slave" [] qopts _ _ =
                         [| do (host, port) <- getHostIpAndUnusedPort $ findHostAndPortOpt $qopts
                               let rtable = $(varE (mkName "__remoteTableDecl")) initRemoteTable 
                               runSlave host port rtable |]
@@ -112,21 +116,22 @@ runSlave host port rtable = do
                       backend <- initializeBackend host port rtable
                       startSlave backend
 
-runMaster host port prop rec rtable clos input afterFunc = do 
+runMaster host port mproc prop recvOrd rtable clos input afterFunc = do 
           backend <- initializeBackend host port rtable
           startMaster backend $
             \slaves -> do
               us <- getSelfPid
               slaveProcesses <- forM slaves $
                 \nid -> spawn nid (clos us)
-              res <- loop prop input slaveProcesses rec
+              res <- loop mproc prop input slaveProcesses recvOrd
               liftIO (afterFunc res)
               where
-                loop prop input slaveProcesses rec  = do 
-                    res <- masterJob input slaveProcesses rec
-                    if prop res
-                      then return res
-                      else loop prop res slaveProcesses rec
+                loop mproc prop input slaveProcesses recvOrd  = do 
+                    res <- masterJob input slaveProcesses recvOrd
+                    let res' = mproc res
+                    if prop res'
+                      then return res'
+                      else loop mproc prop res' slaveProcesses recvOrd
 
 masterJob :: Serializable a => [a] -> [ProcessId] -> String -> Process [a]
 masterJob input slvPrsss "unordered" = do

@@ -32,20 +32,6 @@ remotable ['slaveJob]
 clos = $(mkClosure 'slaveJob)
 rtable = __remoteTable initRemoteTable
 
-masterJob input slaves = do
-          us <- getSelfPid
-          slaveProcesses <- forM slaves $ 
-            \nid -> spawn nid (clos us)
-          spawnLocal $ forM_ (zip input (cycle slaveProcesses)) $
-            \(m, them) -> send them m
-          res <- loop (length input) []
-          liftIO (afterFunc res)
-          where
-            loop 0 xs = return xs
-            loop n xs = do
-                x <- expect
-                loop (n-1) (xs ++ [x])
-
 main = do
   args <- getArgs
   case args of
@@ -55,3 +41,18 @@ main = do
     ["slave",  host, port] -> do
             backend <- initializeBackend host port rtable
             startSlave backend
+
+masterJob input slaves = do
+          us <- getSelfPid
+          slaveProcesses <- forM slaves $ 
+            \nid -> spawn nid (clos us)
+          do  spawnLocal $ forM_ (zip input (cycle slaveProcesses)) $
+                \(m, them) -> send them m
+              res <- loop (length input) []
+              liftIO (afterFunc res)
+              where
+                loop 0 xs = return xs
+                loop n xs = do
+                    x <- expect
+                    loop (n-1) (xs ++ [x])
+
