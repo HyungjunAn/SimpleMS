@@ -39,10 +39,10 @@ mkSlaveJob "ordered" funcName = remotableDecl [
       recvOrd_ :: String
       recvOrd_ = "ordered" |] ]
 
-data Format =  H String | P String | L | L1
+data Format =  H String | P String | L | L1 | L2
 
 runMS :: String -> String -> Q Exp
-runMS ms s = gen ms (parse s) [| [] |] [| \ x -> x |] [| \_ -> True |]
+runMS ms s = gen ms (parse s) [| [] |] [| \ x -> x |] [| \_ _ -> True |]
     where
       parse :: String -> [Format]
       parse [] = []
@@ -50,13 +50,16 @@ runMS ms s = gen ms (parse s) [| [] |] [| \ x -> x |] [| \_ -> True |]
       parse ('%':'P'    :xs) = P "" : parse xs
       parse ('%':'L'    :xs) = L    : parse xs  --loop 
       parse ('%':'1':'L':xs) = L1   : parse xs  --loop with meta processing
+      parse ('%':'2':'L':xs) = L2   : parse xs  --loop with meta processing and compare pro result
 
       gen :: String -> [Format] -> Q Exp -> Q Exp -> Q Exp -> Q Exp
       gen ms (H _:xs) qopts qmproc qprop = [| \host -> $(gen ms xs [| H host: $qopts |] qmproc        qprop   ) |]
       gen ms (P _:xs) qopts qmproc qprop = [| \port -> $(gen ms xs [| P port: $qopts |] qmproc        qprop   ) |]
       gen ms (L  :xs) qopts qmproc qprop = [| \prop -> $(gen ms xs qopts                qmproc      [| prop |]) |]
       gen ms (L1 :xs) qopts qmproc qprop = [| \mproc -> \prop ->
-                                                       $(gen ms xs qopts              [| mproc |]   [| prop |]) |]
+                                                       $(gen ms xs qopts [| mproc |]   [| \x y -> prop x |]) |]
+      gen ms (L2 :xs) qopts qmproc qprop = [| \mproc -> \prop ->
+                                                       $(gen ms xs qopts [| mproc |]   [| prop |]) |]
       gen "master" [] qopts qmproc qprop = [| \input -> \afterFunc -> do
                                   (host, port) <- getHostIpAndUnusedPort $ findHostAndPortOpt $qopts
                                   let prop = $qprop
@@ -129,11 +132,10 @@ runMaster host port mproc prop recvOrd rtable clos input afterFunc = do
                 loop mproc prop input slaveProcesses recvOrd  = do 
                     res <- masterJob input slaveProcesses recvOrd
                     let res' = mproc res
-                    if prop res'
+                    if prop res' input
                       then return res'
                       else loop mproc prop res' slaveProcesses recvOrd
 
-masterJob :: Serializable a => [a] -> [ProcessId] -> String -> Process [a]
 masterJob input slvPrsss "unordered" = do
           let infos = zip input (cycle slvPrsss)
           spawnLocal $ forM_ infos $
