@@ -83,14 +83,13 @@ findHostAndPortOpt fs = loop fs (Nothing, Nothing)
 
 getHostIpAndUnusedPort :: (Maybe String, Maybe String) -> IO (String, String)
 getHostIpAndUnusedPort (mh, mp) = do
-                            let host | isNothing mh = "127.0.0.1"
-                                     | otherwise    = fromJust mh
-                            let port | isNothing mp = "80"
-                                     | otherwise    = fromJust mp
-                            mp' <- getUnusedPort port
-                            case isNothing mp of
-                              True  -> return (host, fromJust mp')
-                              False -> return (host, port)
+                            hostIp <- getHostIp
+                            unUsedPort <- getUnusedPort "80"
+                            let host  | isNothing mh = hostIp
+                                      | otherwise    = mh
+                            let port  | isNothing mp = unUsedPort
+                                      | otherwise    = mp
+                            return (fromJust host, fromJust port)
 
 getUnusedPort :: String -> IO (Maybe String)
 getUnusedPort s = do
@@ -109,6 +108,20 @@ getUnusedPort s = do
         isInteger s = case reads s :: [(Integer, String)] of
                           [(_, "")] -> True
                           _         -> False
+        getProcessOutput :: String -> IO String
+        getProcessOutput command = do
+              (_pin, pOut, pErr, handle) <- runInteractiveCommand command
+              output <- hGetContents pOut
+              return output
+
+getHostIp :: IO (Maybe String)
+getHostIp = do
+    ip <- getProcessOutput $
+                    "ifconfig | grep inet | head -n 1  | awk -F ':' '{print $2}' | awk '{print $1}'"
+    case ip of 
+        "" -> return   Nothing
+        _  -> return $ Just (take (length ip - 1) ip) -- remove newline
+    where
         getProcessOutput :: String -> IO String
         getProcessOutput command = do
               (_pin, pOut, pErr, handle) <- runInteractiveCommand command
