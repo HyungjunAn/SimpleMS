@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
-module Main where
+module UsingSimpleMS where
 import System.Environment (getArgs)
 
 import SimpleMS
