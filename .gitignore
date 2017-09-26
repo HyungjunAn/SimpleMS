@@ -3,8 +3,10 @@
 *.o
 *.hi
 *.swp
-*.txt
 UsingSimpleMS
 CloudHaskell
 EvalMonad
 Sequential
+Main_origin
+Main_simple
+plag/
